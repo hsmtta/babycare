@@ -21,10 +21,10 @@ def log_event(time: datetime, event_name: str, message: str, pause=True):
 
 class EventStatus(Enum):
     NON_ACTIVE = 1
-    ACTIVE = 2
-    WAITING = 3
+    PENDING = 2
+    READY = 3
     RUNNING = 4
-    SUSPENDED = 5
+    PAUSED = 5
     COMPLETED = 6
 
 class Baby:
@@ -56,7 +56,7 @@ class Event(ABC):
 
         self.duration = None
 
-        self.status = EventStatus.ACTIVE
+        self.status = EventStatus.PENDING
         self.time_elapsed = timedelta()
 
     @abstractmethod
@@ -92,7 +92,7 @@ class BreakFast(Event):
         self.current_date = None
 
     def reset(self):
-        self.status = EventStatus.ACTIVE
+        self.status = EventStatus.PENDING
 
     def enqueue_required(self, current_time: datetime) -> bool:
         # Reset event completion when day is changed
@@ -102,12 +102,12 @@ class BreakFast(Event):
 
         time_in_today = time(hour=current_time.hour, minute=current_time.minute)
         is_past_due_time = time_in_today >= self.schedule
-        return is_past_due_time and self.status == EventStatus.ACTIVE
+        return is_past_due_time and self.status == EventStatus.PENDING
 
     def process(self, current_time: datetime, time_step: timedelta):
         self.time_elapsed += time_step
 
-        if self.status == EventStatus.SUSPENDED:
+        if self.status == EventStatus.PAUSED:
             log_event(current_time, self.name, "Resume breakfast event.")
         self.status = EventStatus.RUNNING
         
@@ -125,7 +125,7 @@ class BreakFast(Event):
             log_event(current_time + time_step, self.name, "Breakfast event is completed.")
 
     def suspend(self, current_time: datetime):
-        self.status = EventStatus.SUSPENDED
+        self.status = EventStatus.PAUSED
         log_event(current_time, self.name, "Suspend the event.", False)
 
     def finalize(self):
@@ -146,7 +146,7 @@ class Lunch(Event):
         self.current_date = None
 
     def reset(self):
-        self.status = EventStatus.ACTIVE
+        self.status = EventStatus.PENDING
 
     def enqueue_required(self, current_time: datetime) -> bool:
         # Reset event completion when day is changed
@@ -156,12 +156,12 @@ class Lunch(Event):
 
         time_in_today = time(hour=current_time.hour, minute=current_time.minute)
         is_past_due_time = time_in_today >= self.schedule
-        return is_past_due_time and self.status == EventStatus.ACTIVE
+        return is_past_due_time and self.status == EventStatus.PENDING
 
     def process(self, current_time: datetime, time_step: timedelta):
         self.time_elapsed += time_step
 
-        if self.status == EventStatus.SUSPENDED:
+        if self.status == EventStatus.PAUSED:
             log_event(current_time, self.name, "Resume Lunch event.")
         self.status = EventStatus.RUNNING
 
@@ -180,7 +180,7 @@ class Lunch(Event):
             log_event(current_time + time_step, self.name, "Lunch event is completed.")
 
     def suspend(self, current_time: datetime):
-        self.status = EventStatus.SUSPENDED
+        self.status = EventStatus.PAUSED
         log_event(current_time, self.name, "Suspend the event.", False)
 
     def finalize(self):
@@ -201,7 +201,7 @@ class Dinner(Event):
         self.current_date = None
 
     def reset(self):
-        self.status = EventStatus.ACTIVE
+        self.status = EventStatus.PENDING
         self.time_elapsed = timedelta()
 
     def enqueue_required(self, current_time: datetime) -> bool:
@@ -212,12 +212,12 @@ class Dinner(Event):
 
         time_in_today = time(hour=current_time.hour, minute=current_time.minute)
         is_past_due_time = time_in_today >= self.schedule
-        return is_past_due_time and self.status == EventStatus.ACTIVE
+        return is_past_due_time and self.status == EventStatus.PENDING
 
     def process(self, current_time: datetime, time_step: timedelta):
         self.time_elapsed += time_step
 
-        if self.status == EventStatus.SUSPENDED:
+        if self.status == EventStatus.PAUSED:
             log_event(current_time, self.name, "Resume Dinner event.")
         self.status = EventStatus.RUNNING
 
@@ -235,7 +235,7 @@ class Dinner(Event):
             log_event(current_time + time_step, self.name, "Dinner event is completed.")
 
     def suspend(self, current_time: datetime):
-        self.status = EventStatus.SUSPENDED
+        self.status = EventStatus.PAUSED
         log_event(current_time, self.name, "Suspend the event.", False)
     
     def finalize(self):
@@ -256,7 +256,7 @@ class Sleep():
 
         time_in_today = time(hour=current_time.hour, minute=current_time.minute)
         is_past_due_time = time_in_today >= self.schedule
-        return is_past_due_time and self.status == EventStatus.ACTIVE
+        return is_past_due_time and self.status == EventStatus.PENDING
 
 class Laundry(Event):
     """Gather clothes, measure and add detergent to the drum, and start the laundry machine."""
@@ -315,7 +315,7 @@ class MilkFeeding(Event):
         pass
 
     def finalize(self):
-        self.status = EventStatus.ACTIVE
+        self.status = EventStatus.PENDING
         self.time_elapsed = timedelta()
 
 class EventManager:
@@ -336,7 +336,7 @@ class EventManager:
         for event in self.events_to_check:
             if event.enqueue_required(current_time):
                 heapq.heappush(self.event_queue, (event.priority, self.count, event))
-                event.status = EventStatus.WAITING
+                event.status = EventStatus.READY
                 self.events_to_check.remove(event)
                 self.count += 1
 
