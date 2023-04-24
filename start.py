@@ -102,7 +102,10 @@ class BreakFast(Event):
 
         time_in_today = time(hour=current_time.hour, minute=current_time.minute)
         is_past_due_time = time_in_today >= self.schedule
-        return is_past_due_time and self.status == EventStatus.PENDING and not self.completed_today
+        if is_past_due_time and self.status == EventStatus.PENDING and not self.completed_today:
+            self.status = EventStatus.READY
+            return True
+        return False
 
     def process(self, current_time: datetime, time_step: timedelta):
         self.time_elapsed += time_step
@@ -158,7 +161,10 @@ class Lunch(Event):
 
         time_in_today = time(hour=current_time.hour, minute=current_time.minute)
         is_past_due_time = time_in_today >= self.schedule
-        return is_past_due_time and self.status == EventStatus.PENDING and not self.completed_today
+        if is_past_due_time and self.status == EventStatus.PENDING and not self.completed_today:
+            self.status = EventStatus.READY
+            return True
+        return False
 
     def process(self, current_time: datetime, time_step: timedelta):
         self.time_elapsed += time_step
@@ -215,7 +221,10 @@ class Dinner(Event):
 
         time_in_today = time(hour=current_time.hour, minute=current_time.minute)
         is_past_due_time = time_in_today >= self.schedule
-        return is_past_due_time and self.status == EventStatus.PENDING and not self.completed_today
+        if is_past_due_time and self.status == EventStatus.PENDING and not self.completed_today:
+            self.status = EventStatus.READY
+            return True
+        return False
 
     def process(self, current_time: datetime, time_step: timedelta):
         self.time_elapsed += time_step
@@ -297,7 +306,10 @@ class MilkFeeding(Event):
         self.baby = baby
 
     def enqueue_required(self, current_time: datetime) -> bool:
-        return self.baby.is_hungry(current_time)
+        if self.baby.is_hungry(current_time):
+            self.status = EventStatus.READY
+            return True
+        return False
 
     def process(self, current_time: datetime, time_step: timedelta):
         self.time_elapsed += time_step
@@ -341,7 +353,6 @@ class EventManager:
         for event in self.events_to_check:
             if event.enqueue_required(current_time):
                 heapq.heappush(self.event_queue, (event.priority, self.count, event))
-                event.status = EventStatus.READY
                 self.events_to_check.remove(event)
                 self.count += 1
 
