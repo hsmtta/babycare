@@ -20,12 +20,11 @@ def log_event(time: datetime, event_name: str, message: str, pause=True):
     log_message(time, event_name + " | " + message, pause)
 
 class EventStatus(Enum):
-    NON_ACTIVE = 1
-    PENDING = 2
-    READY = 3
-    RUNNING = 4
-    PAUSED = 5
-    COMPLETED = 6
+    PENDING = 0
+    READY = 1
+    RUNNING = 2
+    PAUSED = 3
+    COMPLETED = 4
 
 class Baby:
     def __init__(self, current_time: datetime):
@@ -90,9 +89,10 @@ class BreakFast(Event):
         self.duration = self.prep_duration + self.eating_duration + self.cleanup_duration
         
         self.current_date = None
+        self.completed_today = False
 
     def reset(self):
-        self.status = EventStatus.PENDING
+        self.completed_today = False
 
     def enqueue_required(self, current_time: datetime) -> bool:
         # Reset event completion when day is changed
@@ -102,7 +102,7 @@ class BreakFast(Event):
 
         time_in_today = time(hour=current_time.hour, minute=current_time.minute)
         is_past_due_time = time_in_today >= self.schedule
-        return is_past_due_time and self.status == EventStatus.PENDING
+        return is_past_due_time and self.status == EventStatus.PENDING and not self.completed_today
 
     def process(self, current_time: datetime, time_step: timedelta):
         self.time_elapsed += time_step
@@ -129,7 +129,8 @@ class BreakFast(Event):
         log_event(current_time, self.name, "Suspend the event.", False)
 
     def finalize(self):
-        self.status = EventStatus.NON_ACTIVE
+        self.status = EventStatus.PENDING
+        self.completed_today = True
         self.time_elapsed = timedelta()
 
 class Lunch(Event):
@@ -144,9 +145,10 @@ class Lunch(Event):
         self.duration = self.prep_duration + self.eating_duration + self.cleanup_duration
 
         self.current_date = None
+        self.completed_today = False
 
     def reset(self):
-        self.status = EventStatus.PENDING
+        self.completed_today = False
 
     def enqueue_required(self, current_time: datetime) -> bool:
         # Reset event completion when day is changed
@@ -156,7 +158,7 @@ class Lunch(Event):
 
         time_in_today = time(hour=current_time.hour, minute=current_time.minute)
         is_past_due_time = time_in_today >= self.schedule
-        return is_past_due_time and self.status == EventStatus.PENDING
+        return is_past_due_time and self.status == EventStatus.PENDING and not self.completed_today
 
     def process(self, current_time: datetime, time_step: timedelta):
         self.time_elapsed += time_step
@@ -184,7 +186,8 @@ class Lunch(Event):
         log_event(current_time, self.name, "Suspend the event.", False)
 
     def finalize(self):
-        self.status = EventStatus.NON_ACTIVE
+        self.status = EventStatus.PENDING
+        self.completed_today = True
         self.time_elapsed = timedelta()
 
 class Dinner(Event):
@@ -199,10 +202,10 @@ class Dinner(Event):
         self.duration = self.prep_duration + self.eating_duration + self.cleanup_duration
 
         self.current_date = None
+        self.completed_today = False
 
     def reset(self):
-        self.status = EventStatus.PENDING
-        self.time_elapsed = timedelta()
+        self.completed_today = False
 
     def enqueue_required(self, current_time: datetime) -> bool:
         # Reset event completion when day is changed
@@ -212,7 +215,7 @@ class Dinner(Event):
 
         time_in_today = time(hour=current_time.hour, minute=current_time.minute)
         is_past_due_time = time_in_today >= self.schedule
-        return is_past_due_time and self.status == EventStatus.PENDING
+        return is_past_due_time and self.status == EventStatus.PENDING and not self.completed_today
 
     def process(self, current_time: datetime, time_step: timedelta):
         self.time_elapsed += time_step
@@ -239,7 +242,9 @@ class Dinner(Event):
         log_event(current_time, self.name, "Suspend the event.", False)
     
     def finalize(self):
-        self.status = EventStatus.NON_ACTIVE
+        self.status = EventStatus.PENDING
+        self.completed_today = True
+        self.time_elapsed = timedelta()
 
 class Sleep():
     def __init__(self):
