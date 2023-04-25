@@ -8,9 +8,9 @@ from abc import ABC, abstractmethod
 from typing import List, Tuple
 
 
-def log_message(time: datetime, message: str, pause=True):
-    formatted_time = time.strftime("%Y-%m-%d %I:%M %p")
-    print(formatted_time, "|", message, end="", flush=True)
+def log_message(dt: datetime, message: str, pause=True):
+    dt_str = dt.strftime("%Y-%m-%d %I:%M %p")
+    print(dt_str, "|", message, end="", flush=True)
     if pause:
         # Press enter to proceed
         input()
@@ -18,8 +18,8 @@ def log_message(time: datetime, message: str, pause=True):
         print(flush=True)
 
 
-def log_event(time: datetime, event_name: str, message: str, pause=True):
-    log_message(time, event_name + " | " + message, pause)
+def log_event(dt: datetime, event_name: str, message: str, pause=True):
+    log_message(dt, event_name + " | " + message, pause)
 
 
 class EventStatus(Enum):
@@ -51,12 +51,11 @@ class Baby:
 class Event(ABC):
     """Abstruct base class for events."""
 
-    def __init__(self):
-        # Smaller numbers (>= 0) have higher priority
-        self.priority = 0
+    def __init__(self, name: str, priority: int):
+        self.name = name
 
-        # Scheculed time that the event expected to be happen
-        self.schedule = None
+        # Smaller numbers (>= 0) have higher priority
+        self.priority = priority
 
         self.duration = None
 
@@ -85,9 +84,7 @@ class Event(ABC):
 
 class Meal(Event):
     def __init__(self, now: datetime, name: str, priority: int, schedule: time, durations, skip_today=False):
-        super().__init__()
-        self.name = name
-        self.priority = priority
+        super().__init__(name, priority)
         self.daily_schedule = schedule
         self.prep_duration = timedelta(minutes=durations[0])
         self.eating_duration = timedelta(minutes=durations[1])
@@ -98,16 +95,16 @@ class Meal(Event):
         if skip_today:
             self.next_schedule += timedelta(days=1)
 
-    def is_ready(self, current_time: timedelta) -> bool:
+    def is_ready(self, now: timedelta) -> bool:
         assert self.status == EventStatus.PENDING, "Event status should be PENDING"
-        past_due_time = current_time >= self.next_schedule
+        past_due_time = now >= self.next_schedule
         if past_due_time:
             self.status = EventStatus.READY
             return True
         else:
             return False
 
-    def process(self, current_time: datetime, time_step: timedelta):
+    def process(self, now: datetime, time_step: timedelta):
         assert self.status in [
             EventStatus.READY,
             EventStatus.RUNNING,
@@ -116,28 +113,28 @@ class Meal(Event):
         self.time_elapsed += time_step
 
         if self.status == EventStatus.PAUSED:
-            log_event(current_time, self.name, f"Resume {self.name} event.")
+            log_event(now, self.name, f"Resume {self.name} event.")
         self.status = EventStatus.RUNNING
 
         if self.time_elapsed == time_step:
-            log_event(current_time, self.name, f"Start preparing. Takes {self.prep_duration.seconds//60} min.")
+            log_event(now, self.name, f"Start preparing. Takes {self.prep_duration.seconds//60} min.")
 
         if self.time_elapsed == self.prep_duration:
-            log_event(current_time + time_step, self.name, f"Start eating. Takes {self.eating_duration.seconds//60} min.")
+            log_event(now + time_step, self.name, f"Start eating. Takes {self.eating_duration.seconds//60} min.")
 
         if self.time_elapsed == self.prep_duration + self.eating_duration:
             log_event(
-                current_time + time_step, self.name, f"Start cleaning up. Takes {self.cleanup_duration.seconds//60} min."
+                now + time_step, self.name, f"Start cleaning up. Takes {self.cleanup_duration.seconds//60} min."
             )
 
         if self.time_elapsed == self.duration:
             self.status = EventStatus.COMPLETED
-            log_event(current_time + time_step, self.name, f"{self.name} event is completed.")
+            log_event(now + time_step, self.name, f"{self.name} event is completed.")
 
-    def pause(self, current_time: datetime):
+    def pause(self, now: datetime):
         assert self.status == EventStatus.RUNNING, "Event status should be RUNNING"
         self.status = EventStatus.PAUSED
-        log_event(current_time, self.name, "Suspend the event.", False)
+        log_event(now, self.name, "Suspend the event.", False)
 
     def finalize(self):
         assert self.status == EventStatus.COMPLETED, "Event status should be COMPLETED"
@@ -148,9 +145,7 @@ class Meal(Event):
 
 class Sleep(Event):
     def __init__(self, now: datetime, skip_today=False):
-        super().__init__()
-        self.name = "Sleep"
-        self.priority = 5
+        super().__init__("Sleep", 5)
         self.daily_schedule = time(hour=23, minute=0)
         self.duration = timedelta(hours=7)
 
@@ -223,9 +218,7 @@ class Airer(Event):
 
 class MilkFeeding(Event):
     def __init__(self, baby: Baby):
-        super().__init__()
-        self.name = "Milk Feeding"
-        self.priority = 0
+        super().__init__("Milk Feeding", 0)
         self.prep_duration = timedelta(minutes=10)
         self.feeding_duration = timedelta(minutes=30)
         self.cleanup_duration = timedelta(minutes=5)
