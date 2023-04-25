@@ -84,33 +84,35 @@ class Event(ABC):
 
 
 class BreakFast(Event):
-    def __init__(self):
+    def __init__(self, now: datetime, skip_today=False):
         super().__init__()
         self.name = "Breakfast"
         self.priority = 5
-        self.schedule = time(hour=8, minute=0)
+        self.daily_schedule = time(hour=8, minute=0)
         self.prep_duration = timedelta(minutes=15)
         self.eating_duration = timedelta(minutes=10)
         self.cleanup_duration = timedelta(minutes=10)
         self.duration = self.prep_duration + self.eating_duration + self.cleanup_duration
 
-        self.current_date = None
-        self.completed_today = False
+        self.next_schedule = datetime(now.year, now.month, now.day, self.daily_schedule.hour, self.daily_schedule.minute)
+        if skip_today:
+            self.next_schedule += timedelta(days=1)
 
     def is_ready(self, current_time: datetime) -> bool:
-        # Reset event completion when day is changed
-        if self.current_date != current_time.date():
-            self.current_date = current_time.date()
-            self.completed_today = False
-
-        time_in_today = time(hour=current_time.hour, minute=current_time.minute)
-        is_past_due_time = time_in_today >= self.schedule
-        if is_past_due_time and self.status == EventStatus.PENDING and not self.completed_today:
+        assert self.status == EventStatus.PENDING, "Event status should be PENDING"
+        past_due_time = current_time >= self.next_schedule
+        if past_due_time:
             self.status = EventStatus.READY
             return True
-        return False
+        else:
+            return False
 
     def process(self, current_time: datetime, time_step: timedelta):
+        assert self.status in [
+            EventStatus.READY,
+            EventStatus.RUNNING,
+            EventStatus.PAUSED,
+        ], "Event status should be one of READY, RUNNING, or PAUSED"
         self.time_elapsed += time_step
 
         if self.status == EventStatus.PAUSED:
@@ -133,43 +135,47 @@ class BreakFast(Event):
             log_event(current_time + time_step, self.name, "Breakfast event is completed.")
 
     def pause(self, current_time: datetime):
+        assert self.status == EventStatus.RUNNING, "Event status should be RUNNING"
         self.status = EventStatus.PAUSED
         log_event(current_time, self.name, "Suspend the event.", False)
 
     def finalize(self):
+        assert self.status == EventStatus.COMPLETED, "Event status should be COMPLETED"
         self.status = EventStatus.PENDING
-        self.completed_today = True
         self.time_elapsed = timedelta()
+        self.next_schedule += timedelta(days=1)
 
 
 class Lunch(Event):
-    def __init__(self):
+    def __init__(self, now: datetime, skip_today=False):
         super().__init__()
         self.name = "Lunch"
         self.priority = 5
-        self.schedule = time(hour=12, minute=0)
+        self.daily_schedule = time(hour=12, minute=0)
         self.prep_duration = timedelta(minutes=30)
         self.eating_duration = timedelta(minutes=15)
         self.cleanup_duration = timedelta(minutes=10)
         self.duration = self.prep_duration + self.eating_duration + self.cleanup_duration
 
-        self.current_date = None
-        self.completed_today = False
+        self.next_schedule = datetime(now.year, now.month, now.day, self.daily_schedule.hour, self.daily_schedule.minute)
+        if skip_today:
+            self.next_schedule += timedelta(days=1)
 
     def is_ready(self, current_time: datetime) -> bool:
-        # Reset event completion when day is changed
-        if self.current_date != current_time.date():
-            self.current_date = current_time.date()
-            self.completed_today = False
-
-        time_in_today = time(hour=current_time.hour, minute=current_time.minute)
-        is_past_due_time = time_in_today >= self.schedule
-        if is_past_due_time and self.status == EventStatus.PENDING and not self.completed_today:
+        assert self.status == EventStatus.PENDING, "Event status should be PENDING"
+        past_due_time = current_time >= self.next_schedule
+        if past_due_time:
             self.status = EventStatus.READY
             return True
-        return False
+        else:
+            return False
 
     def process(self, current_time: datetime, time_step: timedelta):
+        assert self.status in [
+            EventStatus.READY,
+            EventStatus.RUNNING,
+            EventStatus.PAUSED,
+        ], "Event status should be one of READY, RUNNING, or PAUSED"
         self.time_elapsed += time_step
 
         if self.status == EventStatus.PAUSED:
@@ -193,43 +199,47 @@ class Lunch(Event):
             log_event(current_time + time_step, self.name, "Lunch event is completed.")
 
     def pause(self, current_time: datetime):
+        assert self.status == EventStatus.RUNNING, "Event status should be RUNNING"
         self.status = EventStatus.PAUSED
         log_event(current_time, self.name, "Suspend the event.", False)
 
     def finalize(self):
+        assert self.status == EventStatus.COMPLETED, "Event status should be COMPLETED"
         self.status = EventStatus.PENDING
-        self.completed_today = True
         self.time_elapsed = timedelta()
+        self.next_schedule += timedelta(days=1)
 
 
 class Dinner(Event):
-    def __init__(self):
+    def __init__(self, now: datetime, skip_today=False):
         super().__init__()
         self.name = "Dinner"
         self.priority = 5
-        self.schedule = time(hour=18, minute=0)
+        self.daily_schedule = time(hour=18, minute=0)
         self.prep_duration = timedelta(minutes=45)
         self.eating_duration = timedelta(minutes=30)
         self.cleanup_duration = timedelta(minutes=15)
         self.duration = self.prep_duration + self.eating_duration + self.cleanup_duration
-
-        self.current_date = None
-        self.completed_today = False
+        
+        self.next_schedule = datetime(now.year, now.month, now.day, self.daily_schedule.hour, self.daily_schedule.minute)
+        if skip_today:
+            self.next_schedule += timedelta(days=1)
 
     def is_ready(self, current_time: datetime) -> bool:
-        # Reset event completion when day is changed
-        if self.current_date != current_time.date():
-            self.current_date = current_time.date()
-            self.completed_today = False
-
-        time_in_today = time(hour=current_time.hour, minute=current_time.minute)
-        is_past_due_time = time_in_today >= self.schedule
-        if is_past_due_time and self.status == EventStatus.PENDING and not self.completed_today:
+        assert self.status == EventStatus.PENDING, "Event status should be PENDING"
+        past_due_time = current_time >= self.next_schedule
+        if past_due_time:
             self.status = EventStatus.READY
             return True
-        return False
+        else:
+            return False
 
     def process(self, current_time: datetime, time_step: timedelta):
+        assert self.status in [
+            EventStatus.READY,
+            EventStatus.RUNNING,
+            EventStatus.PAUSED,
+        ], "Event status should be one of READY, RUNNING, or PAUSED"
         self.time_elapsed += time_step
 
         if self.status == EventStatus.PAUSED:
@@ -252,30 +262,26 @@ class Dinner(Event):
             log_event(current_time + time_step, self.name, "Dinner event is completed.")
 
     def pause(self, current_time: datetime):
+        assert self.status == EventStatus.RUNNING, "Event status should be RUNNING"
         self.status = EventStatus.PAUSED
         log_event(current_time, self.name, "Suspend the event.", False)
 
     def finalize(self):
+        assert self.status == EventStatus.COMPLETED, "Event status should be COMPLETED"
         self.status = EventStatus.PENDING
-        self.completed_today = True
         self.time_elapsed = timedelta()
+        self.next_schedule += timedelta(days=1)
 
 
 class Sleep(Event):
-    def __init__(self, current_time: datetime, skip_today=False):
+    def __init__(self, now: datetime, skip_today=False):
         super().__init__()
         self.name = "Sleep"
         self.priority = 5
         self.daily_schedule = time(hour=23, minute=0)
         self.duration = timedelta(hours=7)
 
-        self.next_schedule = datetime(
-            year=current_time.year,
-            month=current_time.month,
-            day=current_time.day,
-            hour=self.daily_schedule.hour,
-            minute=self.daily_schedule.minute,
-        )
+        self.next_schedule = datetime(now.year, now.month, now.day, self.daily_schedule.hour, self.daily_schedule.minute)
         if skip_today:
             self.next_schedule += timedelta(days=1)
 
@@ -308,6 +314,7 @@ class Sleep(Event):
             log_event(current_time + time_step, self.name, f"Bedtime is over. Good morning!!")
 
     def pause(self, current_time: datetime):
+        assert self.status == EventStatus.RUNNING, "Event status should be RUNNING"
         self.status = EventStatus.PAUSED
         log_event(current_time, self.name, "Get up in the middle.", False)
 
@@ -434,7 +441,7 @@ def main():
 
     baby = Baby(now)
 
-    events = [BreakFast(), Lunch(), Dinner(), MilkFeeding(baby), Sleep(now)]
+    events = [BreakFast(now), Lunch(now), Dinner(now), MilkFeeding(baby), Sleep(now)]
     event_manager = EventManager()
     for event in events:
         event_manager.register_event(event)
