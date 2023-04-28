@@ -1,6 +1,7 @@
 # MIT License
 # (c) 2023 Takahiro Hashimoto
 import heapq
+import sys
 import numpy as np
 from enum import Enum
 from datetime import datetime, timedelta, time
@@ -20,7 +21,10 @@ def log_message(dt: datetime, message: str, pause=True):
     print(dt_str, "|", message, end="", flush=True)
     if pause:
         # Press enter to proceed
-        input()
+        user_input = input()
+        if user_input.lower() == 'q':
+            print("Exiting the program...")
+            sys.exit(1)
     else:
         print(flush=True)
 
@@ -39,35 +43,39 @@ class EventStatus(Enum):
 
 class Baby:
     def __init__(self, current_time: datetime):
-        self.average_interval_min = 180
-        self.stdiv_interval_min = 30
-        self.last_fed = None
-        self.interval = None
+        self._average_interval_min = 180
+        self._stdiv_interval_min = 30
+        self._last_fed = None
+        self._interval = None
         self.fed(current_time)
 
     def fed(self, current_time: datetime):
-        self.last_fed = current_time
+        self._last_fed = current_time
 
-        interval_min = np.random.normal(self.average_interval_min, self.stdiv_interval_min)
-        self.interval = timedelta(minutes=interval_min)
+        interval_min = np.random.normal(self._average_interval_min, self._stdiv_interval_min)
+        self._interval = timedelta(minutes=interval_min)
 
     def is_hungry(self, current_time: datetime) -> bool:
-        return current_time - self.last_fed >= self.interval
+        return current_time - self._last_fed >= self._interval
 
 
 class Event(ABC):
     """Abstruct base class for events."""
 
     def __init__(self, name: str, priority: int):
-        self.name = name
+        self._name = name
 
         # Smaller numbers (>= 0) have higher priority
-        self.priority = priority
+        self._priority = priority
 
-        self.duration = None
+        self._duration = None
 
         self._status = EventStatus.PENDING
         self._time_elapsed = timedelta()
+
+    @property
+    def priority(self):
+        return self._priority
 
     @abstractmethod
     def is_ready(self, current_time: datetime) -> bool:
@@ -124,19 +132,19 @@ class DailyReporter:
 class Meal(Event):
     def __init__(self, now: datetime, name: str, priority: int, schedule: time, durations, skip_today=False):
         super().__init__(name, priority)
-        self.daily_schedule = schedule
-        self.prep_duration = timedelta(minutes=durations[0])
-        self.eating_duration = timedelta(minutes=durations[1])
-        self.cleanup_duration = timedelta(minutes=durations[2])
-        self.duration = self.prep_duration + self.eating_duration + self.cleanup_duration
+        self._daily_schedule = schedule
+        self._prep_duration = timedelta(minutes=durations[0])
+        self._eating_duration = timedelta(minutes=durations[1])
+        self._cleanup_duration = timedelta(minutes=durations[2])
+        self._duration = self._prep_duration + self._eating_duration + self._cleanup_duration
 
-        self.next_schedule = datetime(now.year, now.month, now.day, self.daily_schedule.hour, self.daily_schedule.minute)
+        self._next_schedule = datetime(now.year, now.month, now.day, self._daily_schedule.hour, self._daily_schedule.minute)
         if skip_today:
-            self.next_schedule += timedelta(days=1)
+            self._next_schedule += timedelta(days=1)
 
     def is_ready(self, now: timedelta) -> bool:
         assert self._status == EventStatus.PENDING, "Event status should be PENDING"
-        past_due_time = now >= self.next_schedule
+        past_due_time = now >= self._next_schedule
         if past_due_time:
             self._status = EventStatus.READY
             return True
@@ -152,39 +160,39 @@ class Meal(Event):
         self._time_elapsed += time_step
 
         if self._status == EventStatus.PAUSED:
-            log_event(now, self.name, f"Resume {self.name} event.")
+            log_event(now, self._name, f"Resume {self._name} event.")
         self._status = EventStatus.RUNNING
 
         if self._time_elapsed == time_step:
-            log_event(now, self.name, f"Start preparing. Takes {self.prep_duration.seconds//60} min.")
+            log_event(now, self._name, f"Start preparing. Takes {self._prep_duration.seconds//60} min.")
 
-        if self._time_elapsed == self.prep_duration:
-            log_event(now + time_step, self.name, f"Start eating. Takes {self.eating_duration.seconds//60} min.")
+        if self._time_elapsed == self._prep_duration:
+            log_event(now + time_step, self._name, f"Start eating. Takes {self._eating_duration.seconds//60} min.")
 
-        if self._time_elapsed == self.prep_duration + self.eating_duration:
-            log_event(now + time_step, self.name, f"Start cleaning up. Takes {self.cleanup_duration.seconds//60} min.")
+        if self._time_elapsed == self._prep_duration + self._eating_duration:
+            log_event(now + time_step, self._name, f"Start cleaning up. Takes {self._cleanup_duration.seconds//60} min.")
 
-        if self._time_elapsed == self.duration:
+        if self._time_elapsed == self._duration:
             self._status = EventStatus.COMPLETED
-            log_event(now + time_step, self.name, f"{self.name} event is completed.")
+            log_event(now + time_step, self._name, f"{self._name} event is completed.")
 
     def pause(self, now: datetime):
         assert self._status == EventStatus.RUNNING, "Event status should be RUNNING"
         self._status = EventStatus.PAUSED
-        log_event(now, self.name, "Suspend the event.", False)
+        log_event(now, self._name, "Suspend the event.", False)
 
     def finalize(self):
         assert self._status == EventStatus.COMPLETED, "Event status should be COMPLETED"
         self._status = EventStatus.PENDING
         self._time_elapsed = timedelta()
-        self.next_schedule += timedelta(days=1)
+        self._next_schedule += timedelta(days=1)
 
 
 class Sleep(Event):
     def __init__(self, now: datetime, skip_today=False):
         super().__init__("Sleep", 5)
         self.daily_schedule = time(hour=23, minute=0)
-        self.duration = timedelta(hours=7)
+        self._duration = timedelta(hours=7)
 
         self.next_schedule = datetime(now.year, now.month, now.day, self.daily_schedule.hour, self.daily_schedule.minute)
         if skip_today:
@@ -208,20 +216,20 @@ class Sleep(Event):
         self._time_elapsed += step
 
         if self._status == EventStatus.PAUSED:
-            log_event(now, self.name, "Start sleeping again.")
+            log_event(now, self._name, "Start sleeping again.")
         self._status = EventStatus.RUNNING
 
         if self._time_elapsed == step:
-            log_event(now, self.name, "Start sleeping. Good night!!")
+            log_event(now, self._name, "Start sleeping. Good night!!")
 
-        if self._time_elapsed == self.duration:
+        if self._time_elapsed == self._duration:
             self._status = EventStatus.COMPLETED
-            log_event(now + step, self.name, f"Bedtime is over. Good morning!!")
+            log_event(now + step, self._name, f"Bedtime is over. Good morning!!")
 
     def pause(self, now: datetime):
         assert self._status == EventStatus.RUNNING, "Event status should be RUNNING"
         self._status = EventStatus.PAUSED
-        log_event(now, self.name, "Get up in the middle.", False)
+        log_event(now, self._name, "Get up in the middle.", False)
 
     def finalize(self):
         assert self._status == EventStatus.COMPLETED, "Event status should be COMPLETED"
@@ -235,12 +243,12 @@ class Laundry(Event):
 
     def __init__(self):
         super().__init__()
-        self.priority = 4
-        self.schedule = time(hour=9, minute=0)
-        self.duration = timedelta(minutes=10)
+        self._priority = 4
+        self._schedule = time(hour=9, minute=0)
+        self._duration = timedelta(minutes=10)
 
         # Once washing is complete, Airer event will be triggered
-        self.washing_duration = timedelta(minutes=120)
+        self._washing_duration = timedelta(minutes=120)
 
 
 class Airer(Event):
@@ -250,7 +258,7 @@ class Airer(Event):
         self.priority = 4
         self.hanging_duration = timedelta(minutes=10)
         self.holding_duration = timedelta(minutes=20)
-        self.duration = self.hanging_duration + self.holding_duration
+        self._duration = self.hanging_duration + self.holding_duration
 
 
 class MilkFeeding(Event):
@@ -275,19 +283,19 @@ class MilkFeeding(Event):
 
         if self._time_elapsed == step:
             log_event(
-                now, self.name, f"Baby is crying. Start preparing milk. Takes {self._prep_duration.seconds//60} min."
+                now, self._name, f"Baby is crying. Start preparing milk. Takes {self._prep_duration.seconds//60} min."
             )
 
         if self._time_elapsed == self._prep_duration:
-            log_event(now + step, self.name, f"Start feeding. Takes {self._feeding_duration.seconds//60} min.")
+            log_event(now + step, self._name, f"Start feeding. Takes {self._feeding_duration.seconds//60} min.")
 
         if self._time_elapsed == self._prep_duration + self._feeding_duration:
             self._reporter.notify_feeding()
-            log_event(now + step, self.name, f"Start clean up. Takes {self._cleanup_duration.seconds//60} min.")
+            log_event(now + step, self._name, f"Start clean up. Takes {self._cleanup_duration.seconds//60} min.")
 
         if self._time_elapsed == self._duration:
             self._baby.fed(now + step)
-            log_event(now + step, self.name, "The event is completed.")
+            log_event(now + step, self._name, "The event is completed.")
             self._status = EventStatus.COMPLETED
 
     def pause(self, now: datetime):
