@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, time
 from abc import ABC, abstractmethod
 from typing import List, Tuple
 
+NUM_MINS = 60
+NUM_HOURS = 24
 
 def format_timedelta(delta: timedelta) -> str:
     total_seconds = int(delta.total_seconds())
@@ -22,7 +24,7 @@ def log_message(dt: datetime, message: str, pause=True):
     if pause:
         # Press enter to proceed
         user_input = input()
-        if user_input.lower() == 'q':
+        if user_input.lower() == "q":
             print("Exiting the program...")
             sys.exit(1)
     else:
@@ -57,6 +59,38 @@ class Baby:
 
     def is_hungry(self, current_time: datetime) -> bool:
         return current_time - self._last_fed >= self._interval
+
+
+class DailyReporter:
+    def __init__(self):
+        self._freetime = timedelta()
+        self._feeding_count = 0
+        self._intervention_count = 0
+
+    def _print(self):
+        print("----------DAILY SUMMARY----------")
+        freetime_str = format_timedelta(self._freetime)
+        print(f"# milk feeding: {self._feeding_count}")
+        print(f"# intervention: {self._intervention_count}")
+        print(f"Freetime: {freetime_str}")
+        print("---------------------------------")
+
+    def _reset(self):
+        self.__init__()
+
+    def notify_freetime(self, duration: timedelta):
+        self._freetime += duration
+
+    def notify_feeding(self):
+        self._feeding_count += 1
+
+    def notify_intervention(self):
+        self._intervention_count += 1
+
+    def try_print(self, now: datetime, step: timedelta):
+        if now.day != (now + step).day:
+            self._print()
+            self._reset()
 
 
 class Event(ABC):
@@ -95,38 +129,6 @@ class Event(ABC):
     @abstractmethod
     def finalize(self):
         pass
-
-
-class DailyReporter:
-    def __init__(self):
-        self._freetime = timedelta()
-        self._feeding_count = 0
-        self._intervention_count = 0
-
-    def _print(self):
-        print("----------DAILY SUMMARY----------")
-        freetime_str = format_timedelta(self._freetime)
-        print(f"# milk feeding: {self._feeding_count}")
-        print(f"# intervention: {self._intervention_count}")
-        print(f"Freetime: {freetime_str}")
-        print("---------------------------------")
-
-    def _reset(self):
-        self.__init__()
-
-    def notify_freetime(self, duration: timedelta):
-        self._freetime += duration
-
-    def notify_feeding(self):
-        self._feeding_count += 1
-
-    def notify_intervention(self):
-        self._intervention_count += 1
-
-    def try_print(self, now: datetime, step: timedelta):
-        if now.day != (now + step).day:
-            self._print()
-            self._reset()
 
 
 class Meal(Event):
@@ -238,17 +240,81 @@ class Sleep(Event):
         self._next_schedule += timedelta(days=1)
 
 
+class Airer(Event):
+    """Once washing is complete, hang clothes on an airer and hold dried clothes."""
+
+    def __init__(self):
+        super().__init__("Airer", 5)
+        self._hanging_duration = timedelta(minutes=10)
+        self._holding_duration = timedelta(minutes=20)
+        self._duration = self._hanging_duration + self._holding_duration
+        self._schedule = None
+
+    def notify_washing(self, end_schedule: datetime):
+        self._schedule = end_schedule
+
+    def is_ready(self, now: datetime) -> bool:
+        assert self._status == EventStatus.PENDING, "Event status should be PENDING"
+        if self._schedule is None:
+            return False
+
+        past_due_time = now >= self._schedule
+        if past_due_time:
+            self._status = EventStatus.READY
+            return True
+        else:
+            return False
+
+    def process(self, now: datetime, step: timedelta):
+        assert self._status in [
+            EventStatus.READY,
+            EventStatus.RUNNING,
+            EventStatus.PAUSED,
+        ], "Event status should be one of READY, RUNNING, or PAUSED"
+        self._time_elapsed += step
+
+        if self._status == EventStatus.PAUSED:
+            log_event(now, self._name, "Resume event.")
+        self._status = EventStatus.RUNNING
+
+        if self._time_elapsed == step:
+            log_event(
+                now, self._name, f"Washing finished. Start hanging clothes. Takes {self._hanging_duration.seconds//60} min."
+            )
+
+        if self._time_elapsed == self._hanging_duration:
+            log_event(
+                now + step, self._name, f"Start holding dried clothes. Takes {self._holding_duration.seconds//60} min."
+            )
+
+        if self._time_elapsed == self._duration:
+            self._status = EventStatus.COMPLETED
+            log_event(now + step, self._name, f"Event completed.")
+
+    def pause(self, now: datetime):
+        assert self._status == EventStatus.RUNNING, "Event status should be RUNNING"
+        self._status = EventStatus.PAUSED
+        log_event(now, self._name, "Get up in the middle.", False)
+
+    def finalize(self):
+        assert self._status == EventStatus.COMPLETED, "Event status should be COMPLETED"
+        self._status = EventStatus.PENDING
+        self._time_elapsed = timedelta()
+        self._schedule = None
+
+
 class Laundry(Event):
     """Gather clothes, measure and add detergent to the drum, and start the laundry machine."""
 
-    def __init__(self, now: datetime, skip_today=False):
+    def __init__(self, now: datetime, airer_event: Airer, skip_today=False):
         super().__init__("Laundry", 5)
         self._daily_schedule = time(hour=9, minute=0)
         self._duration = timedelta(minutes=10)
+        self._airer_event = airer_event
 
         # Once washing is complete, Airer event will be triggered
         self._washing_duration = timedelta(minutes=120)
-        
+
         self._next_schedule = datetime(now.year, now.month, now.day, self._daily_schedule.hour, self._daily_schedule.minute)
         if skip_today:
             self._next_schedule += timedelta(days=1)
@@ -279,7 +345,10 @@ class Laundry(Event):
 
         if self._time_elapsed == self._duration:
             self._status = EventStatus.COMPLETED
-            log_event(now + step, self._name, f"Start washing machine. Washing duration: {self._washing_duration.seconds//60} min.")
+            self._airer_event.notify_washing(now + step + self._washing_duration)
+            log_event(
+                now + step, self._name, f"Start washing machine. Washing duration: {self._washing_duration.seconds//60} min."
+            )
 
     def pause(self, now: datetime):
         assert self._status == EventStatus.RUNNING, "Event status should be RUNNING"
@@ -291,16 +360,6 @@ class Laundry(Event):
         self._status = EventStatus.PENDING
         self._time_elapsed = timedelta()
         self._next_schedule += timedelta(days=1)
-
-
-class Airer(Event):
-    """Once washing is complete, hang clothes on an airer and hold dried clothes."""
-
-    def __init__(self):
-        self.priority = 4
-        self.hanging_duration = timedelta(minutes=10)
-        self.holding_duration = timedelta(minutes=20)
-        self._duration = self.hanging_duration + self.holding_duration
 
 
 class MilkFeeding(Event):
@@ -324,9 +383,7 @@ class MilkFeeding(Event):
         self._time_elapsed += step
 
         if self._time_elapsed == step:
-            log_event(
-                now, self._name, f"Baby is crying. Start preparing milk. Takes {self._prep_duration.seconds//60} min."
-            )
+            log_event(now, self._name, f"Baby is crying. Start preparing milk. Takes {self._prep_duration.seconds//60} min.")
 
         if self._time_elapsed == self._prep_duration:
             log_event(now + step, self._name, f"Start feeding. Takes {self._feeding_duration.seconds//60} min.")
@@ -404,17 +461,19 @@ def main():
     breakfast = Meal(now, "Breakfast", 5, time(8, 0), (15, 10, 10))
     lunch = Meal(now, "Lunch", 5, time(12, 0), (30, 15, 10))
     dinner = Meal(now, "Dinner", 5, time(18, 0), (45, 30, 15))
-    laundry = Laundry(now)
-    events = [breakfast, lunch, dinner, laundry, MilkFeeding(baby, reporter), Sleep(now)]
+    airer = Airer()
+    laundry = Laundry(now, airer)
+    events = [breakfast, lunch, dinner, airer, laundry, MilkFeeding(baby, reporter), Sleep(now)]
 
     event_manager = EventManager(reporter)
     for event in events:
         event_manager.add_event(event)
 
-    # Simulate 2 days
+    # Simulate 3 days
+    NUM_DAYS = 3
     time_step = timedelta(minutes=1)
     log_message(now, "Starting a life with a baby...")
-    for _ in range(60 * 24 * 2):
+    for _ in range(NUM_MINS * NUM_HOURS * NUM_DAYS):
         queue_is_not_empty = event_manager.check_conditions(now, time_step)
 
         if queue_is_not_empty:
