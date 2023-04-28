@@ -191,16 +191,16 @@ class Meal(Event):
 class Sleep(Event):
     def __init__(self, now: datetime, skip_today=False):
         super().__init__("Sleep", 5)
-        self.daily_schedule = time(hour=23, minute=0)
-        self._duration = timedelta(hours=7)
+        self._daily_schedule = time(hour=23, minute=0)
+        self._duration = timedelta(hours=8)
 
-        self.next_schedule = datetime(now.year, now.month, now.day, self.daily_schedule.hour, self.daily_schedule.minute)
+        self._next_schedule = datetime(now.year, now.month, now.day, self._daily_schedule.hour, self._daily_schedule.minute)
         if skip_today:
-            self.next_schedule += timedelta(days=1)
+            self._next_schedule += timedelta(days=1)
 
     def is_ready(self, now: datetime) -> bool:
         assert self._status == EventStatus.PENDING, "Event status should be PENDING"
-        past_due_time = now >= self.next_schedule
+        past_due_time = now >= self._next_schedule
         if past_due_time:
             self._status = EventStatus.READY
             return True
@@ -235,20 +235,62 @@ class Sleep(Event):
         assert self._status == EventStatus.COMPLETED, "Event status should be COMPLETED"
         self._status = EventStatus.PENDING
         self._time_elapsed = timedelta()
-        self.next_schedule += timedelta(days=1)
+        self._next_schedule += timedelta(days=1)
 
 
 class Laundry(Event):
     """Gather clothes, measure and add detergent to the drum, and start the laundry machine."""
 
-    def __init__(self):
-        super().__init__()
-        self._priority = 4
-        self._schedule = time(hour=9, minute=0)
+    def __init__(self, now: datetime, skip_today=False):
+        super().__init__("Laundry", 5)
+        self._daily_schedule = time(hour=9, minute=0)
         self._duration = timedelta(minutes=10)
 
         # Once washing is complete, Airer event will be triggered
         self._washing_duration = timedelta(minutes=120)
+        
+        self._next_schedule = datetime(now.year, now.month, now.day, self._daily_schedule.hour, self._daily_schedule.minute)
+        if skip_today:
+            self._next_schedule += timedelta(days=1)
+
+    def is_ready(self, now: datetime) -> bool:
+        assert self._status == EventStatus.PENDING, "Event status should be PENDING"
+        past_due_time = now >= self._next_schedule
+        if past_due_time:
+            self._status = EventStatus.READY
+            return True
+        else:
+            return False
+
+    def process(self, now: datetime, step: timedelta):
+        assert self._status in [
+            EventStatus.READY,
+            EventStatus.RUNNING,
+            EventStatus.PAUSED,
+        ], "Event status should be one of READY, RUNNING, or PAUSED"
+        self._time_elapsed += step
+
+        if self._status == EventStatus.PAUSED:
+            log_event(now, self._name, "Resume event.")
+        self._status = EventStatus.RUNNING
+
+        if self._time_elapsed == step:
+            log_event(now, self._name, "Gather clothes and put it to the dram.")
+
+        if self._time_elapsed == self._duration:
+            self._status = EventStatus.COMPLETED
+            log_event(now + step, self._name, f"Start washing machine. Washing duration: {self._washing_duration.seconds//60} min.")
+
+    def pause(self, now: datetime):
+        assert self._status == EventStatus.RUNNING, "Event status should be RUNNING"
+        self._status = EventStatus.PAUSED
+        log_event(now, self._name, "Get up in the middle.", False)
+
+    def finalize(self):
+        assert self._status == EventStatus.COMPLETED, "Event status should be COMPLETED"
+        self._status = EventStatus.PENDING
+        self._time_elapsed = timedelta()
+        self._next_schedule += timedelta(days=1)
 
 
 class Airer(Event):
@@ -362,7 +404,8 @@ def main():
     breakfast = Meal(now, "Breakfast", 5, time(8, 0), (15, 10, 10))
     lunch = Meal(now, "Lunch", 5, time(12, 0), (30, 15, 10))
     dinner = Meal(now, "Dinner", 5, time(18, 0), (45, 30, 15))
-    events = [breakfast, lunch, dinner, MilkFeeding(baby, reporter), Sleep(now)]
+    laundry = Laundry(now)
+    events = [breakfast, lunch, dinner, laundry, MilkFeeding(baby, reporter), Sleep(now)]
 
     event_manager = EventManager(reporter)
     for event in events:
