@@ -8,6 +8,13 @@ from abc import ABC, abstractmethod
 from typing import List, Tuple
 
 
+def format_timedelta(delta: timedelta) -> str:
+    total_seconds = int(delta.total_seconds())
+    h, remainder = divmod(total_seconds, 3600)
+    m = remainder // 60
+    return f"{h:02d}:{m:02d}"
+
+
 def log_message(dt: datetime, message: str, pause=True):
     dt_str = dt.strftime("%Y-%m-%d %I:%M %p")
     print(dt_str, "|", message, end="", flush=True)
@@ -82,6 +89,38 @@ class Event(ABC):
         pass
 
 
+class DailyReporter:
+    def __init__(self):
+        self._freetime = timedelta()
+        self._feeding_count = 0
+        self._intervention_count = 0
+
+    def _print(self):
+        print("----------DAILY SUMMARY----------")
+        freetime_str = format_timedelta(self._freetime)
+        print(f"# milk feeding: {self._feeding_count}")
+        print(f"# intervention: {self._intervention_count}")
+        print(f"Freetime: {freetime_str}")
+        print("---------------------------------")
+
+    def _reset(self):
+        self.__init__()
+
+    def notify_freetime(self, duration: timedelta):
+        self._freetime += duration
+
+    def notify_feeding(self):
+        self._feeding_count += 1
+
+    def notify_intervention(self):
+        self._intervention_count += 1
+
+    def try_print(self, now: datetime, step: timedelta):
+        if now.day != (now + step).day:
+            self._print()
+            self._reset()
+
+
 class Meal(Event):
     def __init__(self, now: datetime, name: str, priority: int, schedule: time, durations, skip_today=False):
         super().__init__(name, priority)
@@ -123,9 +162,7 @@ class Meal(Event):
             log_event(now + time_step, self.name, f"Start eating. Takes {self.eating_duration.seconds//60} min.")
 
         if self.time_elapsed == self.prep_duration + self.eating_duration:
-            log_event(
-                now + time_step, self.name, f"Start cleaning up. Takes {self.cleanup_duration.seconds//60} min."
-            )
+            log_event(now + time_step, self.name, f"Start cleaning up. Takes {self.cleanup_duration.seconds//60} min.")
 
         if self.time_elapsed == self.duration:
             self.status = EventStatus.COMPLETED
@@ -217,12 +254,13 @@ class Airer(Event):
 
 
 class MilkFeeding(Event):
-    def __init__(self, baby: Baby):
+    def __init__(self, baby: Baby, reporter: DailyReporter):
         super().__init__("Milk Feeding", 0)
         self.prep_duration = timedelta(minutes=10)
         self.feeding_duration = timedelta(minutes=30)
         self.cleanup_duration = timedelta(minutes=5)
         self.duration = self.prep_duration + self.feeding_duration + self.cleanup_duration
+        self._reporter = reporter
 
         self.baby = baby
 
@@ -244,6 +282,7 @@ class MilkFeeding(Event):
             log_event(current_time + time_step, self.name, f"Start feeding. Takes {self.feeding_duration.seconds//60} min.")
 
         if self.time_elapsed == self.prep_duration + self.feeding_duration:
+            self._reporter.notify_feeding()
             log_event(current_time + time_step, self.name, f"Start clean up. Takes {self.cleanup_duration.seconds//60} min.")
 
         if self.time_elapsed == self.duration:
@@ -264,23 +303,29 @@ class EventManager:
     Managing events, checking their conditions, and processing events based on their priority.
     """
 
-    def __init__(self):
+    def __init__(self, reporter: DailyReporter):
         self.count = 0
         self.events_to_check: List[Event] = []
         self.event_queue: List[Tuple[int, int, Event]] = []
         self.ongoing_event: Event = None
+        self._reporter = reporter
 
-    def register_event(self, event: Event):
+    def add_event(self, event: Event):
         self.events_to_check.append(event)
 
-    def check_conditions(self, current_time: datetime) -> bool:
+    def check_conditions(self, now: datetime, step: timedelta) -> bool:
         for event in self.events_to_check:
-            if event.is_ready(current_time):
+            if event.is_ready(now):
                 heapq.heappush(self.event_queue, (event.priority, self.count, event))
                 self.events_to_check.remove(event)
                 self.count += 1
 
-        return len(self.event_queue) > 0
+        if len(self.event_queue) == 0:
+            # Free time
+            self._reporter.notify_freetime(step)
+            return False
+        else:
+            return True
 
     def process_next_event(self, current_time: datetime, step: timedelta):
         # Get the highest priority event
@@ -289,6 +334,7 @@ class EventManager:
         # If priority is changed, suspend the old event and start a new one.
         if type(event) != type(self.ongoing_event) and self.ongoing_event != None:
             self.ongoing_event.pause(current_time)
+            self._reporter.notify_intervention()
         self.ongoing_event = event
         event.process(current_time, step)
 
@@ -303,23 +349,28 @@ class EventManager:
 def main():
     now = datetime(2023, 4, 2, 7, 0)
     baby = Baby(now)
+    reporter = DailyReporter()
 
     breakfast = Meal(now, "Breakfast", 5, time(8, 0), (15, 10, 10))
     lunch = Meal(now, "Lunch", 5, time(12, 0), (30, 15, 10))
     dinner = Meal(now, "Dinner", 5, time(18, 0), (45, 30, 15))
-    events = [breakfast, lunch, dinner, MilkFeeding(baby), Sleep(now)]
-    event_manager = EventManager()
+    events = [breakfast, lunch, dinner, MilkFeeding(baby, reporter), Sleep(now)]
+
+    event_manager = EventManager(reporter)
     for event in events:
-        event_manager.register_event(event)
+        event_manager.add_event(event)
 
     # Simulate 2 days
     time_step = timedelta(minutes=1)
     log_message(now, "Starting a life with a baby...")
     for _ in range(60 * 24 * 2):
-        has_satisfied_event = event_manager.check_conditions(now)
+        has_satisfied_event = event_manager.check_conditions(now, time_step)
 
         if has_satisfied_event:
             event_manager.process_next_event(now, time_step)
+
+        # Print daily event summary at the final step of the day
+        reporter.try_print(now, time_step)
 
         now += time_step
 
