@@ -66,22 +66,22 @@ class Event(ABC):
 
         self.duration = None
 
-        self.status = EventStatus.PENDING
-        self.time_elapsed = timedelta()
+        self._status = EventStatus.PENDING
+        self._time_elapsed = timedelta()
 
     @abstractmethod
     def is_ready(self, current_time: datetime) -> bool:
-        """True when event should be processed."""
+        """True when event is ready to be queued"""
         pass
 
     @abstractmethod
     def process(self, current_time: datetime, time_step: timedelta):
-        """Process new or suspended event for a specified duration."""
+        """Process event for a specified duration."""
         pass
 
     @abstractmethod
     def pause(self, current_time: datetime):
-        """Suspend ongoing event."""
+        """Pause ongoing event."""
         pass
 
     @abstractmethod
@@ -135,48 +135,48 @@ class Meal(Event):
             self.next_schedule += timedelta(days=1)
 
     def is_ready(self, now: timedelta) -> bool:
-        assert self.status == EventStatus.PENDING, "Event status should be PENDING"
+        assert self._status == EventStatus.PENDING, "Event status should be PENDING"
         past_due_time = now >= self.next_schedule
         if past_due_time:
-            self.status = EventStatus.READY
+            self._status = EventStatus.READY
             return True
         else:
             return False
 
     def process(self, now: datetime, time_step: timedelta):
-        assert self.status in [
+        assert self._status in [
             EventStatus.READY,
             EventStatus.RUNNING,
             EventStatus.PAUSED,
         ], "Event status should be one of READY, RUNNING, or PAUSED"
-        self.time_elapsed += time_step
+        self._time_elapsed += time_step
 
-        if self.status == EventStatus.PAUSED:
+        if self._status == EventStatus.PAUSED:
             log_event(now, self.name, f"Resume {self.name} event.")
-        self.status = EventStatus.RUNNING
+        self._status = EventStatus.RUNNING
 
-        if self.time_elapsed == time_step:
+        if self._time_elapsed == time_step:
             log_event(now, self.name, f"Start preparing. Takes {self.prep_duration.seconds//60} min.")
 
-        if self.time_elapsed == self.prep_duration:
+        if self._time_elapsed == self.prep_duration:
             log_event(now + time_step, self.name, f"Start eating. Takes {self.eating_duration.seconds//60} min.")
 
-        if self.time_elapsed == self.prep_duration + self.eating_duration:
+        if self._time_elapsed == self.prep_duration + self.eating_duration:
             log_event(now + time_step, self.name, f"Start cleaning up. Takes {self.cleanup_duration.seconds//60} min.")
 
-        if self.time_elapsed == self.duration:
-            self.status = EventStatus.COMPLETED
+        if self._time_elapsed == self.duration:
+            self._status = EventStatus.COMPLETED
             log_event(now + time_step, self.name, f"{self.name} event is completed.")
 
     def pause(self, now: datetime):
-        assert self.status == EventStatus.RUNNING, "Event status should be RUNNING"
-        self.status = EventStatus.PAUSED
+        assert self._status == EventStatus.RUNNING, "Event status should be RUNNING"
+        self._status = EventStatus.PAUSED
         log_event(now, self.name, "Suspend the event.", False)
 
     def finalize(self):
-        assert self.status == EventStatus.COMPLETED, "Event status should be COMPLETED"
-        self.status = EventStatus.PENDING
-        self.time_elapsed = timedelta()
+        assert self._status == EventStatus.COMPLETED, "Event status should be COMPLETED"
+        self._status = EventStatus.PENDING
+        self._time_elapsed = timedelta()
         self.next_schedule += timedelta(days=1)
 
 
@@ -190,43 +190,43 @@ class Sleep(Event):
         if skip_today:
             self.next_schedule += timedelta(days=1)
 
-    def is_ready(self, current_time: datetime) -> bool:
-        assert self.status == EventStatus.PENDING, "Event status should be PENDING"
-        past_due_time = current_time >= self.next_schedule
+    def is_ready(self, now: datetime) -> bool:
+        assert self._status == EventStatus.PENDING, "Event status should be PENDING"
+        past_due_time = now >= self.next_schedule
         if past_due_time:
-            self.status = EventStatus.READY
+            self._status = EventStatus.READY
             return True
         else:
             return False
 
-    def process(self, current_time: datetime, time_step: timedelta):
-        assert self.status in [
+    def process(self, now: datetime, step: timedelta):
+        assert self._status in [
             EventStatus.READY,
             EventStatus.RUNNING,
             EventStatus.PAUSED,
         ], "Event status should be one of READY, RUNNING, or PAUSED"
-        self.time_elapsed += time_step
+        self._time_elapsed += step
 
-        if self.status == EventStatus.PAUSED:
-            log_event(current_time, self.name, "Start sleeping again.")
-        self.status = EventStatus.RUNNING
+        if self._status == EventStatus.PAUSED:
+            log_event(now, self.name, "Start sleeping again.")
+        self._status = EventStatus.RUNNING
 
-        if self.time_elapsed == time_step:
-            log_event(current_time, self.name, "Start sleeping. Good night!!")
+        if self._time_elapsed == step:
+            log_event(now, self.name, "Start sleeping. Good night!!")
 
-        if self.time_elapsed == self.duration:
-            self.status = EventStatus.COMPLETED
-            log_event(current_time + time_step, self.name, f"Bedtime is over. Good morning!!")
+        if self._time_elapsed == self.duration:
+            self._status = EventStatus.COMPLETED
+            log_event(now + step, self.name, f"Bedtime is over. Good morning!!")
 
-    def pause(self, current_time: datetime):
-        assert self.status == EventStatus.RUNNING, "Event status should be RUNNING"
-        self.status = EventStatus.PAUSED
-        log_event(current_time, self.name, "Get up in the middle.", False)
+    def pause(self, now: datetime):
+        assert self._status == EventStatus.RUNNING, "Event status should be RUNNING"
+        self._status = EventStatus.PAUSED
+        log_event(now, self.name, "Get up in the middle.", False)
 
     def finalize(self):
-        assert self.status == EventStatus.COMPLETED, "Event status should be COMPLETED"
-        self.status = EventStatus.PENDING
-        self.time_elapsed = timedelta()
+        assert self._status == EventStatus.COMPLETED, "Event status should be COMPLETED"
+        self._status = EventStatus.PENDING
+        self._time_elapsed = timedelta()
         self.next_schedule += timedelta(days=1)
 
 
@@ -256,46 +256,46 @@ class Airer(Event):
 class MilkFeeding(Event):
     def __init__(self, baby: Baby, reporter: DailyReporter):
         super().__init__("Milk Feeding", 0)
-        self.prep_duration = timedelta(minutes=10)
-        self.feeding_duration = timedelta(minutes=30)
-        self.cleanup_duration = timedelta(minutes=5)
-        self.duration = self.prep_duration + self.feeding_duration + self.cleanup_duration
+        self._prep_duration = timedelta(minutes=10)
+        self._feeding_duration = timedelta(minutes=30)
+        self._cleanup_duration = timedelta(minutes=5)
+        self._duration = self._prep_duration + self._feeding_duration + self._cleanup_duration
         self._reporter = reporter
 
-        self.baby = baby
+        self._baby = baby
 
-    def is_ready(self, current_time: datetime) -> bool:
-        if self.baby.is_hungry(current_time):
-            self.status = EventStatus.READY
+    def is_ready(self, now: datetime) -> bool:
+        if self._baby.is_hungry(now):
+            self._status = EventStatus.READY
             return True
         return False
 
-    def process(self, current_time: datetime, time_step: timedelta):
-        self.time_elapsed += time_step
+    def process(self, now: datetime, step: timedelta):
+        self._time_elapsed += step
 
-        if self.time_elapsed == time_step:
+        if self._time_elapsed == step:
             log_event(
-                current_time, self.name, f"Baby is crying. Start preparing milk. Takes {self.prep_duration.seconds//60} min."
+                now, self.name, f"Baby is crying. Start preparing milk. Takes {self._prep_duration.seconds//60} min."
             )
 
-        if self.time_elapsed == self.prep_duration:
-            log_event(current_time + time_step, self.name, f"Start feeding. Takes {self.feeding_duration.seconds//60} min.")
+        if self._time_elapsed == self._prep_duration:
+            log_event(now + step, self.name, f"Start feeding. Takes {self._feeding_duration.seconds//60} min.")
 
-        if self.time_elapsed == self.prep_duration + self.feeding_duration:
+        if self._time_elapsed == self._prep_duration + self._feeding_duration:
             self._reporter.notify_feeding()
-            log_event(current_time + time_step, self.name, f"Start clean up. Takes {self.cleanup_duration.seconds//60} min.")
+            log_event(now + step, self.name, f"Start clean up. Takes {self._cleanup_duration.seconds//60} min.")
 
-        if self.time_elapsed == self.duration:
-            self.baby.fed(current_time + time_step)
-            log_event(current_time + time_step, self.name, "The event is completed.")
-            self.status = EventStatus.COMPLETED
+        if self._time_elapsed == self._duration:
+            self._baby.fed(now + step)
+            log_event(now + step, self.name, "The event is completed.")
+            self._status = EventStatus.COMPLETED
 
-    def pause(self, current_time: datetime):
+    def pause(self, now: datetime):
         pass
 
     def finalize(self):
-        self.status = EventStatus.PENDING
-        self.time_elapsed = timedelta()
+        self._status = EventStatus.PENDING
+        self._time_elapsed = timedelta()
 
 
 class EventManager:
@@ -304,23 +304,23 @@ class EventManager:
     """
 
     def __init__(self, reporter: DailyReporter):
-        self.count = 0
-        self.events_to_check: List[Event] = []
-        self.event_queue: List[Tuple[int, int, Event]] = []
-        self.ongoing_event: Event = None
+        self._count = 0
+        self._events_to_check: List[Event] = []
+        self._event_queue: List[Tuple[int, int, Event]] = []
+        self._ongoing_event: Event = None
         self._reporter = reporter
 
     def add_event(self, event: Event):
-        self.events_to_check.append(event)
+        self._events_to_check.append(event)
 
     def check_conditions(self, now: datetime, step: timedelta) -> bool:
-        for event in self.events_to_check:
+        for event in self._events_to_check:
             if event.is_ready(now):
-                heapq.heappush(self.event_queue, (event.priority, self.count, event))
-                self.events_to_check.remove(event)
-                self.count += 1
+                heapq.heappush(self._event_queue, (event.priority, self._count, event))
+                self._events_to_check.remove(event)
+                self._count += 1
 
-        if len(self.event_queue) == 0:
+        if len(self._event_queue) == 0:
             # Free time
             self._reporter.notify_freetime(step)
             return False
@@ -329,21 +329,21 @@ class EventManager:
 
     def process_next_event(self, current_time: datetime, step: timedelta):
         # Get the highest priority event
-        _, _, event = self.event_queue[0]
+        _, _, event = self._event_queue[0]
 
         # If priority is changed, suspend the old event and start a new one.
-        if type(event) != type(self.ongoing_event) and self.ongoing_event != None:
-            self.ongoing_event.pause(current_time)
+        if type(event) != type(self._ongoing_event) and self._ongoing_event != None:
+            self._ongoing_event.pause(current_time)
             self._reporter.notify_intervention()
-        self.ongoing_event = event
+        self._ongoing_event = event
         event.process(current_time, step)
 
-        if event.status == EventStatus.COMPLETED:
+        if event._status == EventStatus.COMPLETED:
             # Move event from the waiting list to the check list
-            self.ongoing_event = None
-            _, _, event = heapq.heappop(self.event_queue)
+            self._ongoing_event = None
+            _, _, event = heapq.heappop(self._event_queue)
             event.finalize()
-            self.events_to_check.append(event)
+            self._events_to_check.append(event)
 
 
 def main():
@@ -364,12 +364,12 @@ def main():
     time_step = timedelta(minutes=1)
     log_message(now, "Starting a life with a baby...")
     for _ in range(60 * 24 * 2):
-        has_satisfied_event = event_manager.check_conditions(now, time_step)
+        queue_is_not_empty = event_manager.check_conditions(now, time_step)
 
-        if has_satisfied_event:
+        if queue_is_not_empty:
             event_manager.process_next_event(now, time_step)
 
-        # Print daily event summary at the final step of the day
+        # Report daily event summary at the final step of the day
         reporter.try_print(now, time_step)
 
         now += time_step
