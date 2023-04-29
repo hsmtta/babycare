@@ -11,6 +11,7 @@ from typing import List, Tuple
 NUM_MINS = 60
 NUM_HOURS = 24
 
+
 def format_timedelta(delta: timedelta) -> str:
     total_seconds = int(delta.total_seconds())
     h, remainder = divmod(total_seconds, 3600)
@@ -417,10 +418,7 @@ class EventManager:
         self._ongoing_event: Event = None
         self._reporter = reporter
 
-    def add_event(self, event: Event):
-        self._events_to_check.append(event)
-
-    def check_conditions(self, now: datetime, step: timedelta) -> bool:
+    def _check_conditions(self, now: datetime, step: timedelta) -> bool:
         for event in self._events_to_check:
             if event.is_ready(now):
                 heapq.heappush(self._event_queue, (event.priority, self._count, event))
@@ -434,16 +432,16 @@ class EventManager:
         else:
             return True
 
-    def process_next_event(self, current_time: datetime, step: timedelta):
+    def _process_next_event(self, now: datetime, step: timedelta):
         # Get the highest priority event
         _, _, event = self._event_queue[0]
 
         # If priority is changed, suspend the old event and start a new one.
         if type(event) != type(self._ongoing_event) and self._ongoing_event != None:
-            self._ongoing_event.pause(current_time)
+            self._ongoing_event.pause(now)
             self._reporter.notify_intervention()
         self._ongoing_event = event
-        event.process(current_time, step)
+        event.process(now, step)
 
         if event._status == EventStatus.COMPLETED:
             # Move event from the waiting list to the check list
@@ -451,6 +449,15 @@ class EventManager:
             _, _, event = heapq.heappop(self._event_queue)
             event.finalize()
             self._events_to_check.append(event)
+
+    def add_event(self, event: Event):
+        self._events_to_check.append(event)
+    
+    def process(self, now: datetime, step: timedelta):
+        queue_is_not_empty = self._check_conditions(now, step)
+
+        if queue_is_not_empty:
+            self._process_next_event(now, step)
 
 
 def main():
@@ -474,10 +481,7 @@ def main():
     time_step = timedelta(minutes=1)
     log_message(now, "Starting a life with a baby...")
     for _ in range(NUM_MINS * NUM_HOURS * NUM_DAYS):
-        queue_is_not_empty = event_manager.check_conditions(now, time_step)
-
-        if queue_is_not_empty:
-            event_manager.process_next_event(now, time_step)
+        event_manager.process(now, time_step)
 
         # Report daily event summary at the final step of the day
         reporter.try_print(now, time_step)
