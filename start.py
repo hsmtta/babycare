@@ -79,13 +79,13 @@ class DailyReporter:
     def _reset(self):
         self.__init__()
 
-    def notify_freetime(self, duration: timedelta):
+    def update_freetime(self, duration: timedelta):
         self._freetime += duration
 
-    def notify_feeding(self):
+    def update_feeding(self):
         self._feeding_count += 1
 
-    def notify_intervention(self):
+    def update_intervention(self):
         self._intervention_count += 1
 
     def try_print(self, now: datetime, step: timedelta):
@@ -390,7 +390,7 @@ class MilkFeeding(Event):
             log_event(now + step, self._name, f"Start feeding. Takes {self._feeding_duration.seconds//60} min.")
 
         if self._time_elapsed == self._prep_duration + self._feeding_duration:
-            self._reporter.notify_feeding()
+            self._reporter.update_feeding()
             log_event(now + step, self._name, f"Start clean up. Takes {self._cleanup_duration.seconds//60} min.")
 
         if self._time_elapsed == self._duration:
@@ -427,7 +427,7 @@ class EventManager:
 
         if len(self._event_queue) == 0:
             # Free time
-            self._reporter.notify_freetime(step)
+            self._reporter.update_freetime(step)
             return False
         else:
             return True
@@ -439,7 +439,7 @@ class EventManager:
         # If priority is changed, suspend the old event and start a new one.
         if type(event) != type(self._ongoing_event) and self._ongoing_event != None:
             self._ongoing_event.pause(now)
-            self._reporter.notify_intervention()
+            self._reporter.update_intervention()
         self._ongoing_event = event
         event.process(now, step)
 
