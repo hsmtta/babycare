@@ -65,6 +65,8 @@ class Baby:
 class DailyReporter:
     def __init__(self):
         self._freetime = timedelta()
+        self._freetime_batch = timedelta()
+        self._is_freetime = True
         self._feeding_count = 0
         self._intervention_count = 0
 
@@ -77,10 +79,22 @@ class DailyReporter:
         print("---------------------------------")
 
     def _reset(self):
-        self.__init__()
+        self._freetime = timedelta()
+        self._feeding_count = 0
+        self._intervention_count = 0
 
     def update_freetime(self, duration: timedelta):
+        self._is_freetime = True
         self._freetime += duration
+        self._freetime_batch += duration
+
+    def update_working(self, duration: timedelta):
+        if self._is_freetime:
+            # Freetime finished
+            print(f"You got {format_timedelta(self._freetime_batch)} freetime.")
+            self._freetime_batch = timedelta()
+            self._is_freetime = False
+        
 
     def update_feeding(self):
         self._feeding_count += 1
@@ -370,10 +384,12 @@ class EventManager:
                 self._count += 1
 
         if len(self._event_queue) == 0:
-            # Free time
+            # Notify freetime
             self._reporter.update_freetime(step)
             return False
         else:
+            # Notify working
+            self._reporter.update_working(step)
             return True
 
     def _process_next_event(self, now: datetime, step: timedelta):
