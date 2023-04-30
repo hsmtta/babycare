@@ -246,6 +246,13 @@ class DailyEvent(Event):
         if skip_today:
             self._next_schedule += timedelta(days=1)
 
+    def _assert_process_is_ready(self):  
+        assert self._status in [
+            EventStatus.READY,
+            EventStatus.RUNNING,
+            EventStatus.PAUSED,
+        ], "Event status should be one of READY, RUNNING, or PAUSED"
+
     def is_ready(self, now: timedelta) -> bool:
         assert self._status == EventStatus.PENDING, "Event status should be PENDING"
         past_due_time = now >= self._next_schedule
@@ -276,11 +283,7 @@ class Meal(DailyEvent):
         self._duration = self._prep_duration + self._eating_duration + self._cleanup_duration
 
     def process(self, now: datetime, time_step: timedelta):
-        assert self._status in [
-            EventStatus.READY,
-            EventStatus.RUNNING,
-            EventStatus.PAUSED,
-        ], "Event status should be one of READY, RUNNING, or PAUSED"
+        super()._assert_process_is_ready()
         self._time_elapsed += time_step
 
         if self._status == EventStatus.PAUSED:
@@ -304,11 +307,7 @@ class Sleep(DailyEvent):
         self._duration = timedelta(hours=8)
 
     def process(self, now: datetime, step: timedelta):
-        assert self._status in [
-            EventStatus.READY,
-            EventStatus.RUNNING,
-            EventStatus.PAUSED,
-        ], "Event status should be one of READY, RUNNING, or PAUSED"
+        super()._assert_process_is_ready()
         self._time_elapsed += step
 
         if self._status == EventStatus.PAUSED:
@@ -334,11 +333,7 @@ class Laundry(DailyEvent):
         self._washing_duration = timedelta(minutes=120)
 
     def process(self, now: datetime, step: timedelta):
-        assert self._status in [
-            EventStatus.READY,
-            EventStatus.RUNNING,
-            EventStatus.PAUSED,
-        ], "Event status should be one of READY, RUNNING, or PAUSED"
+        super()._assert_process_is_ready()
         self._time_elapsed += step
 
         if self._status == EventStatus.PAUSED:
