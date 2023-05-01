@@ -94,7 +94,6 @@ class DailyReporter:
             print(f"You got {format_timedelta(self._freetime_batch)} freetime.")
             self._freetime_batch = timedelta()
             self._is_freetime = False
-        
 
     def update_feeding(self):
         self._feeding_count += 1
@@ -111,11 +110,13 @@ class DailyReporter:
 class Event(ABC):
     """Abstruct base class for events."""
 
-    def __init__(self, name: str, priority: int):
+    def __init__(self, name: str, priority: int, can_pause=True):
         self._name = name
 
         # Smaller numbers (>= 0) have higher priority
         self._priority = priority
+
+        self._can_pause = can_pause
 
         self._duration = None
 
@@ -137,7 +138,7 @@ class Event(ABC):
         pass
 
     @abstractmethod
-    def pause(self, current_time: datetime):
+    def try_pause(self, current_time: datetime) -> bool:
         """Pause ongoing event."""
         pass
 
@@ -197,7 +198,7 @@ class Airer(Event):
             self._status = EventStatus.COMPLETED
             log_event(now + step, self._name, f"Event completed.")
 
-    def pause(self, now: datetime):
+    def try_pause(self, now: datetime):
         assert self._status == EventStatus.RUNNING, "Event status should be RUNNING"
         self._status = EventStatus.PAUSED
         log_event(now, self._name, "Get up in the middle.", False)
@@ -244,7 +245,7 @@ class MilkFeeding(Event):
             log_event(now + step, self._name, "The event is completed.")
             self._status = EventStatus.COMPLETED
 
-    def pause(self, now: datetime):
+    def try_pause(self, now: datetime):
         pass
 
     def finalize(self):
@@ -253,14 +254,14 @@ class MilkFeeding(Event):
 
 
 class DailyEvent(Event):
-    def __init__(self, now: datetime, name: str, priority: int, schedule: time, skip_today=False):
-        super().__init__(name, priority)
+    def __init__(self, now: datetime, name: str, priority: int, schedule: time, skip_today=False, can_pause=True):
+        super().__init__(name, priority, can_pause)
         self._daily_schedule = schedule
         self._next_schedule = datetime(now.year, now.month, now.day, self._daily_schedule.hour, self._daily_schedule.minute)
         if skip_today:
             self._next_schedule += timedelta(days=1)
 
-    def _assert_process_is_ready(self):  
+    def _assert_process_is_ready(self):
         assert self._status in [
             EventStatus.READY,
             EventStatus.RUNNING,
@@ -276,10 +277,14 @@ class DailyEvent(Event):
         else:
             return False
 
-    def pause(self, now: datetime):
+    def try_pause(self, now: datetime) -> bool:
         assert self._status == EventStatus.RUNNING, "Event status should be RUNNING"
-        self._status = EventStatus.PAUSED
-        log_event(now, self._name, "Suspend the event.", False)
+        if self._can_pause:
+            self._status = EventStatus.PAUSED
+            log_event(now, self._name, "Suspend the event.", False)
+            return True
+        else:
+            return False
 
     def finalize(self):
         assert self._status == EventStatus.COMPLETED, "Event status should be COMPLETED"
@@ -297,7 +302,7 @@ class Meal(DailyEvent):
         self._duration = self._prep_duration + self._eating_duration + self._cleanup_duration
 
     def process(self, now: datetime, time_step: timedelta):
-        super()._assert_process_is_ready()
+        self._assert_process_is_ready()
         self._time_elapsed += time_step
 
         if self._status == EventStatus.PAUSED:
@@ -321,7 +326,7 @@ class Sleep(DailyEvent):
         self._duration = timedelta(hours=8)
 
     def process(self, now: datetime, step: timedelta):
-        super()._assert_process_is_ready()
+        self._assert_process_is_ready()
         self._time_elapsed += step
 
         if self._status == EventStatus.PAUSED:
@@ -347,7 +352,7 @@ class Laundry(DailyEvent):
         self._washing_duration = timedelta(minutes=120)
 
     def process(self, now: datetime, step: timedelta):
-        super()._assert_process_is_ready()
+        self._assert_process_is_ready()
         self._time_elapsed += step
 
         if self._status == EventStatus.PAUSED:
@@ -364,6 +369,26 @@ class Laundry(DailyEvent):
             )
 
 
+class Bath(DailyEvent):
+    def __init__(self, now: datetime, skip_today=False):
+        super().__init__(now, "Bath", 4, time(hour=21, minute=0), skip_today, False)
+        self._duration = timedelta(minutes=20)
+
+    def process(self, now: datetime, step: timedelta):
+        self._assert_process_is_ready()
+        self._time_elapsed += step
+
+        if self._status == EventStatus.PAUSED:
+            log_event(now, self._name, "Resume event.")
+        self._status = EventStatus.RUNNING
+
+        if self._time_elapsed == step:
+            log_event(now, self._name, f"Give your baby a bath. Takes {self._duration.seconds//60} min.")
+        elif self._time_elapsed == self._duration:
+            self._status = EventStatus.COMPLETED
+            log_event(now + step, self._name, f"The event is completed.")
+
+
 class EventManager:
     """
     Managing events, checking their conditions, and processing events based on their priority.
@@ -375,6 +400,26 @@ class EventManager:
         self._event_queue: List[Tuple[int, int, Event]] = []
         self._ongoing_event: Event = None
         self._reporter = reporter
+
+    def _remove_item(self):
+        _, _, event = self._event_queue[0]
+
+        if self._ongoing_event == event:
+            heapq.heappop(self._event_queue)
+        else:
+            # Search event from the queue and remove
+            index = None
+            for i, item in enumerate(self._event_queue):
+                if item[2] == self._ongoing_event:
+                    index = i
+                    break
+            if index is None:
+                raise ValueError(f"Event is not found in the queue.")
+            
+            self._event_queue[index] = (-1, -1, -1)
+            heapq.heapify(self._event_queue)
+            heapq.heappop(self._event_queue)
+
 
     def _check_conditions(self, now: datetime, step: timedelta) -> bool:
         for event in self._events_to_check:
@@ -396,19 +441,22 @@ class EventManager:
         # Get the highest priority event
         _, _, event = self._event_queue[0]
 
-        # If priority is changed, suspend the old event and start a new one.
-        if type(event) != type(self._ongoing_event) and self._ongoing_event != None:
-            self._ongoing_event.pause(now)
-            self._reporter.update_intervention()
-        self._ongoing_event = event
-        event.process(now, step)
+        if self._ongoing_event == None:
+            self._ongoing_event = event
+        elif type(event) != type(self._ongoing_event):  # Priority is changed
+            # Pause the event if possible
+            if self._ongoing_event.try_pause(now):
+                self._reporter.update_intervention()
+                self._ongoing_event = event
 
-        if event._status == EventStatus.COMPLETED:
+        self._ongoing_event.process(now, step)
+
+        if self._ongoing_event._status == EventStatus.COMPLETED:
             # Move event from the waiting list to the check list
+            self._remove_item()
+            self._ongoing_event.finalize()
+            self._events_to_check.append(self._ongoing_event)
             self._ongoing_event = None
-            _, _, event = heapq.heappop(self._event_queue)
-            event.finalize()
-            self._events_to_check.append(event)
 
     def add_event(self, event: Event):
         self._events_to_check.append(event)
@@ -430,7 +478,7 @@ def main():
     dinner = Meal(now, "Dinner", 5, time(18, 0), (45, 30, 15))
     airer = Airer()
     laundry = Laundry(now, airer)
-    events = [breakfast, lunch, dinner, airer, laundry, MilkFeeding(baby, reporter), Sleep(now)]
+    events = [breakfast, lunch, dinner, Bath(now), airer, laundry, MilkFeeding(baby, reporter), Sleep(now)]
 
     event_manager = EventManager(reporter)
     for event in events:
